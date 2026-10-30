@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-medical-green: #e0f2f1;
+  --color-medical-dark: #004d40;
+  --color-medical-primary: #00897b;
+}
+
+@layer base {
+  body {
+    background-color: #f8fafc; /* soft white/gray */
+    color: #1e293b;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}

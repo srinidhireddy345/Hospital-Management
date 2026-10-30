@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Function to check if user is logged in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Function to check if user has a specific role
+    function hasRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    // Function to validate name: English alphabet letters and spaces only, no numbers
+    function isValidName(name) {
+      return name is string && name.matches('^[A-Za-z]+(?:\\s+[A-Za-z]+)*$');
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own profile, or receptionists/doctors can read profiles
+      // All authenticated users can read doctor profiles for booking
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        hasRole('receptionist') || 
+        hasRole('doctor') || 
+        resource.data.role == 'doctor'
+      );
+      // Users can create their own profile during registration (name must contain alphabets only)
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
+        (!('name' in request.resource.data) || isValidName(request.resource.data.name));
+      // Users can update their own profile, receptionists can update any (name must contain alphabets only)
+      allow update: if isAuthenticated() && (request.auth.uid == userId || hasRole('receptionist')) &&
+        (!('name' in request.resource.data) || isValidName(request.resource.data.name));
+    }
+
+    // Appointments collection
+    match /appointments/{appointmentId} {
+      // Allow all authenticated users to read appointments to check doctor availability
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.patientId == request.auth.uid;
+      // Strict update rules based on role
+      allow update: if isAuthenticated() && (
+        hasRole('receptionist') || 
+        (resource.data.patientId == request.auth.uid && (request.resource.data.status == resource.data.status || request.resource.data.status == 'Cancelled')) ||
+        (hasRole('doctor') && (
+          resource.data.doctorId == request.auth.uid || 
+          resource.data.doctorId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.doctorId ||
+          !('doctorId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+        ) && (request.resource.data.status == resource.data.status || request.resource.data.status == 'Completed' || request.resource.data.status == 'Cancelled' || request.resource.data.status == 'cancelled'))
+      );
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // Doctors collection (publicly readable for patients to book)
+    match /doctors/{doctorId} {
+      allow read: if isAuthenticated();
+      // Only receptionists can manage doctors
+      allow write: if hasRole('receptionist');
+    }
+
+    // Doctor Availability collection
+    match /doctorAvailability/{availabilityId} {
+      allow read: if isAuthenticated();
+      allow write: if hasRole('receptionist');
+    }
+
+    // Health Package Bookings collection
+    match /healthPackageBookings/{bookingId} {
+      allow read: if isAuthenticated() && (resource.data.patientId == request.auth.uid || hasRole('receptionist'));
+      allow create: if isAuthenticated() && request.resource.data.patientId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        hasRole('receptionist') || 
+        (resource.data.patientId == request.auth.uid && (request.resource.data.status == resource.data.status || request.resource.data.status == 'Cancelled'))
+      );
+    }
+  }
+}
